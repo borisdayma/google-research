@@ -209,8 +209,7 @@ class ShampooState(NamedTuple):
   stats: Any
 
 
-class InitFnState(NamedTuple):
-  init_fn: Any
+class FnState(NamedTuple):
   pspec_fn: Any
   shape_and_dtype_fn: Any
 
@@ -952,7 +951,7 @@ def distributed_shampoo(
       partition_spec_for_statistics: PartitionSpec for the statistics.
     """
     # Parallel lists of spec, and params.
-    param_pspec_flat, _ = jax.tree_flatten(params_partition_spec)
+    param_pspec_flat, _ = jax.tree_flatten(params_partition_spec, is_leaf=lambda x: x is None)
     params_flat, treedef = jax.tree_flatten(params)
     assert param_pspec_flat
     assert params_flat
@@ -1893,14 +1892,8 @@ def distributed_shampoo(
     return updates, new_state
 
   if shard_optimizer_states:
-    # Hijacks the init_fn signature so we can return an OptState with
-    # appropriate init_fns.
-    def _init_fns(unused_params):
-      return InitFnState(
-          init_fn=sharded_init_fn,
-          pspec_fn=sharded_init_partition_spec_fn,
-          shape_and_dtype_fn=sharded_init_shape_and_dtype_fn)
-
-    return optax.GradientTransformation(_init_fns, sharded_update_fn)
+    # return additional helper functions: pspec_fn & shape_and_dtype_fn
+    return (optax.GradientTransformation(sharded_init_fn, sharded_update_fn),
+            FnState(pspec_fn=sharded_init_partition_spec_fn, shape_and_dtype_fn=sharded_init_shape_and_dtype_fn))
   else:
     return optax.GradientTransformation(init_fn, update_fn)
